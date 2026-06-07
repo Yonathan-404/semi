@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dare to Serve · Branch</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="hdr"></div>
+<div class="wrap">
+  <div class="hero">
+    <div class="hbadge"><i class="fas fa-store"></i> Branch Workspace</div>
+    <h1 id="brName">Branch</h1>
+    <p id="brSub">Enter today's numbers and track your campaign progress.</p>
+  </div>
+
+  <div class="sg c4" id="statRow"></div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="tab('entry',this)"><i class="fas fa-pen-to-square"></i> Daily Entry</button>
+    <button class="tab" onclick="tab('hist',this)"><i class="fas fa-clock-rotate-left"></i> History</button>
+  </div>
+
+  <div class="pane active" id="pane-entry">
+    <div class="card">
+      <div class="stit"><div class="ico g"><i class="fas fa-pen-to-square"></i></div>Today's Increment</div>
+      <div class="sdesc">Enter only <b>today's</b> numbers — the system adds them to your campaign total. KPIs are set by Head Office.</div>
+      <div class="row" style="margin-bottom:14px">
+        <div style="max-width:190px"><label>Date</label><input type="date" id="entryDate"></div>
+        <div id="phaseTag" class="muted" style="padding-bottom:9px"></div>
+      </div>
+      <div id="kpiInputs" class="sg c3"></div>
+      <div style="margin-top:6px"><label>Notes (optional)</label><input type="text" id="notes" placeholder="e.g. school visit, system demo, public holiday…"></div>
+      <div style="margin-top:14px"><button class="btn bg" id="saveBtn" onclick="saveEntry()"><i class="fas fa-cloud-arrow-up"></i> Submit Day</button></div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-hist">
+    <div class="card">
+      <div class="stit"><div class="ico"><i class="fas fa-clock-rotate-left"></i></div>Submission History</div>
+      <div class="sdesc">Your daily entries this campaign.</div>
+      <div id="histBox"></div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="app.js"></script>
+<script>
+var S=requireRole('branch'),VIEW=null,CAMPAIGN=null;
+document.getElementById('hdr').innerHTML=renderHeader('Branch','fas fa-store');
+
+function tab(name,btn){document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});btn.classList.add('active');document.querySelectorAll('.pane').forEach(function(p){p.classList.remove('active');});$('pane-'+name).classList.add('active');}
+
+async function load(){
+  try{
+    VIEW=await api('branchView');
+  }catch(e){toast(e.message,'err');return;}
+  $('brName').textContent=VIEW.branch.name;
+  $('brSub').textContent=VIEW.branch.districtName+' · Campaign progress';
+  renderStats();renderInputs();renderHist();
+  $('entryDate').value=new Date().toISOString().slice(0,10);
+}
+function renderStats(){
+  var t=VIEW.totals,b=VIEW.branch;
+  var depPct=pct(t.deposit,b.depositTarget),accPct=pct(t.accounts,b.accountsTarget);
+  $('statRow').innerHTML=
+    statCard('Campaign Score',VIEW.score.toFixed(1),scoreBadge(VIEW.score),'gold')
+   +statCard('Deposit Mobilized','ETB '+fmtETB(t.deposit),'of '+fmtETB(b.depositTarget)+' ('+depPct.toFixed(0)+'%)','',depPct,'gold')
+   +statCard('New Accounts',fmt(t.accounts),'of '+fmt(b.accountsTarget)+' ('+accPct.toFixed(0)+'%)','',accPct)
+   +statCard('Days Reported',VIEW.entries.length,'entries submitted','');
+}
+function statCard(label,val,sub,cls,pctv,fillcls){
+  var bar=pctv!=null?'<div class="pbar"><div class="pfill '+(fillcls||'')+'" style="width:'+Math.min(100,pctv)+'%"></div></div>':'';
+  return '<div class="sc '+(cls||'')+'"><div class="sv">'+val+'</div><div class="sl">'+label+'</div><div class="sx">'+sub+'</div>'+bar+'</div>';
+}
+function renderInputs(){
+  var kpis=VIEW.kpis;
+  $('kpiInputs').innerHTML=kpis.map(function(k){
+    return '<div><label>'+k.name+(k.unit==='ETB'?' <span class="muted">(ETB)</span>':'')+'</label>'
+      +'<input type="number" min="0" step="'+(k.unit==='ETB'?'1000':'1')+'" id="kpi_'+k.key+'" value="0"></div>';
+  }).join('');
+}
+async function saveEntry(){
+  var date=$('entryDate').value;if(!date){toast('Pick a date','err');return;}
+  var values={};VIEW.kpis.forEach(function(k){values[k.key]=parseFloat($('kpi_'+k.key).value)||0;});
+  var btn=$('saveBtn');btn.disabled=true;btn.innerHTML='<span class="ring"></span> Submitting…';
+  try{
+    await api('submitEntry',{method:'POST',body:{date:date,values:values,notes:$('notes').value}});
+    toast('Submitted for '+date+' ✓');
+    $('notes').value='';
+    await load();
+    tab('hist',document.querySelectorAll('.tab')[1]);
+  }catch(e){toast(e.message,'err');}
+  btn.disabled=false;btn.innerHTML='<i class="fas fa-cloud-arrow-up"></i> Submit Day';
+}
+function renderHist(){
+  var es=VIEW.entries;
+  if(!es.length){$('histBox').innerHTML='<div class="empty"><i class="fas fa-inbox"></i><div>No entries yet — submit your first day.</div></div>';return;}
+  var kpis=VIEW.kpis;
+  $('histBox').innerHTML='<div class="tw"><table><thead><tr><th>Date</th>'+kpis.map(function(k){return '<th class="num">'+k.name.replace(/ \(ETB\)/,'')+'</th>';}).join('')+'<th>Notes</th></tr></thead><tbody>'
+    +es.map(function(e){return '<tr><td><b>'+e.date+'</b></td>'+kpis.map(function(k){var v=(e.values&&e.values[k.key])||0;return '<td class="num">'+(k.unit==='ETB'?fmtETB(v):fmt(v))+'</td>';}).join('')+'<td class="muted">'+(e.notes||'—')+'</td></tr>';}).join('')
+    +'</tbody></table></div>';
+}
+load();
+</script>
+</body>
+</html>
+<!-- comment -->

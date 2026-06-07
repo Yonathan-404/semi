@@ -1,0 +1,10 @@
+{
+  "name": "daretoserve-campaign-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bank of Abyssinia — Dare to Serve campaign management system (HO / District / Branch). Phase 1 foundation.",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  },
+  "engines": { "node": ">=18" }
+}

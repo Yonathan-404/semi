@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dare to Serve · Head Office</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="hdr"></div>
+<div class="wrap">
+  <div class="hero">
+    <div class="hbadge"><i class="fas fa-building-columns"></i> Head Office · Campaign Command</div>
+    <h1>National Dashboard</h1>
+    <p id="heroSub">Loading campaign status…</p>
+  </div>
+
+  <div class="sg c4" id="natRow"></div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="tab('districts',this)"><i class="fas fa-ranking-star"></i> Districts</button>
+    <button class="tab" onclick="tab('coverage',this)"><i class="fas fa-clipboard-check"></i> Reporting Coverage</button>
+    <button class="tab" onclick="tab('kpis',this)"><i class="fas fa-sliders"></i> KPI Control</button>
+    <button class="tab" onclick="tab('rewards',this)"><i class="fas fa-trophy"></i> Rewards</button>
+  </div>
+
+  <!-- DISTRICTS -->
+  <div class="pane active" id="pane-districts">
+    <div id="distList">
+      <div class="card">
+        <div class="stit"><div class="ico g"><i class="fas fa-ranking-star"></i></div>District League Table</div>
+        <div class="sdesc">All 12 districts ranked by deposit achievement. Click a district to drill into its branches.</div>
+        <div id="leagueBox"></div>
+      </div>
+    </div>
+    <div id="distDrill" class="hidden">
+      <div class="crumb"><a onclick="backDist()"><i class="fas fa-arrow-left"></i> All districts</a> <i class="fas fa-chevron-right"></i> <span id="crumbD"></span></div>
+      <div class="sg c4" id="dStatRow"></div>
+      <div class="card"><div class="stit"><div class="ico"><i class="fas fa-store"></i></div>Branches</div><div id="dBranchBox"></div></div>
+    </div>
+  </div>
+
+  <!-- COVERAGE -->
+  <div class="pane" id="pane-coverage">
+    <div class="card">
+      <div class="stit"><div class="ico"><i class="fas fa-clipboard-check"></i></div>Reporting Coverage</div>
+      <div class="sdesc">Which districts' sample branches have submitted data. Chase the gaps.</div>
+      <div id="covBox"></div>
+    </div>
+  </div>
+
+  <!-- KPI CONTROL -->
+  <div class="pane" id="pane-kpis">
+    <div class="card">
+      <div class="stit"><div class="ico g"><i class="fas fa-sliders"></i></div>Campaign KPI Control</div>
+      <div class="sdesc">Define the KPIs every branch enters and how they're weighted. Weights should total 100%. Applies bank-wide.</div>
+      <div id="kpiEdit"></div>
+      <div class="row" style="margin-top:12px;justify-content:space-between">
+        <div class="muted">Total weight: <b id="wTot">0</b>%</div>
+        <button class="btn bg" id="saveKpiBtn" onclick="saveKpis()"><i class="fas fa-floppy-disk"></i> Save KPI Config</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- REWARDS -->
+  <div class="pane" id="pane-rewards">
+    <div class="sg c3" id="rewardCards"></div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="app.js"></script>
+<script>
+var S=requireRole('ho'),HO=null;
+document.getElementById('hdr').innerHTML=renderHeader('Head Office','fas fa-building-columns');
+function tab(name,btn){document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});btn.classList.add('active');document.querySelectorAll('.pane').forEach(function(p){p.classList.remove('active');});$('pane-'+name).classList.add('active');}
+function statCard(label,val,sub,cls,pctv,fillcls){var bar=pctv!=null?'<div class="pbar"><div class="pfill '+(fillcls||'')+'" style="width:'+Math.min(100,pctv)+'%"></div></div>':'';return '<div class="sc '+(cls||'')+'"><div class="sv">'+val+'</div><div class="sl">'+label+'</div><div class="sx">'+(sub||'')+'</div>'+bar+'</div>';}
+
+async function load(){
+  try{HO=await api('hoView');}catch(e){toast(e.message,'err');return;}
+  var n=HO.national,c=HO.campaign,ph=currentPhase(c);
+  $('heroSub').textContent=c.name+' · '+(ph?ph.num+' ('+ph.name+')':'campaign window')+' · '+daysLeft(c)+' days left';
+  var depPct=pct(n.deposit,n.depositTarget),accPct=pct(n.accounts,n.accountsTarget),schPct=pct(n.schools,n.schoolsTarget);
+  $('natRow').innerHTML=
+    statCard('Deposit Mobilized','ETB '+fmtETB(n.deposit),'of ETB '+fmtETB(n.depositTarget)+' target ('+depPct.toFixed(1)+'%)','gold',depPct,'gold')
+   +statCard('New Accounts',fmt(n.accounts),'of '+fmt(n.accountsTarget)+' ('+accPct.toFixed(1)+'%)','',accPct)
+   +statCard('Schools Onboarded',fmt(n.schools),'of '+fmt(n.schoolsTarget)+' ('+schPct.toFixed(0)+'%)','',schPct)
+   +statCard('Branches Reporting',fmt(n.reportedBranches)+' / '+fmt(n.totalBranches),'sample branches active','');
+  renderLeague();renderCoverage();renderKpis();renderRewards();
+}
+function renderLeague(){
+  var rows=HO.districts;
+  $('leagueBox').innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>District</th><th class="num">Deposit</th><th class="num">Target</th><th class="num">%</th><th class="num">Accounts</th><th class="num">Schools</th><th class="num">Branches</th><th>Status</th></tr></thead><tbody>'
+   +rows.map(function(r,i){
+     return '<tr class="click" onclick="drillDist(\''+r.id+'\')"><td><span class="rank '+rankCls(i)+'">'+(i+1)+'</span></td>'
+       +'<td><b>'+r.name+'</b></td>'
+       +'<td class="num">ETB '+fmtETB(r.depositActual)+'</td>'
+       +'<td class="num muted">'+fmtETB(r.depositTarget)+'</td>'
+       +'<td class="num"><b>'+r.depositPct.toFixed(1)+'%</b></td>'
+       +'<td class="num">'+fmt(r.accounts)+'</td>'
+       +'<td class="num">'+fmt(r.schools)+'</td>'
+       +'<td class="num">'+r.reportedBranches+'/'+r.sampleBranches+'</td>'
+       +'<td>'+scoreBadge(r.depositPct)+'</td></tr>';
+   }).join('')+'</tbody></table></div>';
+}
+async function drillDist(id){
+  try{var dv=await api('districtView',{qs:'districtId='+encodeURIComponent(id)});}catch(e){toast(e.message,'err');return;}
+  $('distList').classList.add('hidden');$('distDrill').classList.remove('hidden');
+  $('crumbD').textContent=dv.district.name;
+  var totDep=dv.rows.reduce(function(s,r){return s+(r.totals.deposit||0);},0);
+  var totAcc=dv.rows.reduce(function(s,r){return s+(r.totals.accounts||0);},0);
+  var reported=dv.rows.filter(function(r){return r.reportedDays>0;}).length;
+  $('dStatRow').innerHTML=
+    statCard('District Deposit','ETB '+fmtETB(totDep),'of '+fmtETB(dv.district.depositTarget),'gold',pct(totDep,dv.district.depositTarget),'gold')
+   +statCard('Accounts',fmt(totAcc),'sample branches','')
+   +statCard('Reporting',reported+'/'+dv.rows.length,'branches','')
+   +statCard('School Target',fmt(dv.district.schoolTarget),'schools','');
+  $('dBranchBox').innerHTML=dv.rows.length?('<div class="tw"><table><thead><tr><th>#</th><th>Branch</th><th class="num">Deposit</th><th class="num">%</th><th class="num">Accounts</th><th class="num">Days</th><th>Status</th></tr></thead><tbody>'
+   +dv.rows.map(function(r,i){var dp=pct(r.totals.deposit,r.depositTarget);return '<tr><td><span class="rank '+rankCls(i)+'">'+(i+1)+'</span></td><td><b>'+r.name+'</b></td><td class="num">ETB '+fmtETB(r.totals.deposit)+'</td><td class="num"><b>'+dp.toFixed(0)+'%</b></td><td class="num">'+fmt(r.totals.accounts)+'</td><td class="num">'+r.reportedDays+'</td><td>'+scoreBadge(r.score)+'</td></tr>';}).join('')+'</tbody></table></div>')
+   :'<div class="empty"><i class="fas fa-store-slash"></i><div>No sample branches.</div></div>';
+}
+function backDist(){$('distDrill').classList.add('hidden');$('distList').classList.remove('hidden');}
+function renderCoverage(){
+  var rows=HO.districts.slice().sort(function(a,b){return (b.reportedBranches/Math.max(1,b.sampleBranches))-(a.reportedBranches/Math.max(1,a.sampleBranches));});
+  $('covBox').innerHTML='<div class="tw"><table><thead><tr><th>District</th><th class="num">Reported</th><th class="num">Sample Branches</th><th>Coverage</th></tr></thead><tbody>'
+   +rows.map(function(r){var cp=pct(r.reportedBranches,r.sampleBranches);var cls=cp>=80?'ok':cp>=40?'gold':'low';
+     return '<tr><td><b>'+r.name+'</b></td><td class="num">'+r.reportedBranches+'</td><td class="num">'+r.sampleBranches+'</td><td><div class="pbar" style="margin:0"><div class="pfill '+cls+'" style="width:'+cp+'%"></div></div></td></tr>';}).join('')+'</tbody></table></div>';
+}
+function renderKpis(){
+  var kpis=HO.campaign.kpis;
+  $('kpiEdit').innerHTML='<div class="tw"><table><thead><tr><th>KPI Name</th><th class="num">Weight %</th><th class="num">Alert %</th><th>Unit</th><th>Pillar</th></tr></thead><tbody>'
+   +kpis.map(function(k,i){return '<tr>'
+     +'<td><input value="'+k.name+'" oninput="HO.campaign.kpis['+i+'].name=this.value"></td>'
+     +'<td class="num"><input type="number" min="0" max="100" value="'+k.weight+'" oninput="HO.campaign.kpis['+i+'].weight=+this.value;recalcW()" style="width:80px;text-align:right"></td>'
+     +'<td class="num"><input type="number" min="0" max="100" value="'+(k.alertPct||0)+'" oninput="HO.campaign.kpis['+i+'].alertPct=+this.value" style="width:80px;text-align:right"></td>'
+     +'<td><select onchange="HO.campaign.kpis['+i+'].unit=this.value"><option value="count"'+(k.unit==='count'?' selected':'')+'>count</option><option value="ETB"'+(k.unit==='ETB'?' selected':'')+'>ETB</option></select></td>'
+     +'<td class="muted">'+(k.pillar||'')+'</td></tr>';}).join('')+'</tbody></table></div>';
+  recalcW();
+}
+function recalcW(){var w=HO.campaign.kpis.reduce(function(s,k){return s+(+k.weight||0);},0);$('wTot').textContent=w;$('wTot').style.color=w===100?'var(--ok)':'var(--er)';}
+async function saveKpis(){
+  var w=HO.campaign.kpis.reduce(function(s,k){return s+(+k.weight||0);},0);
+  if(w!==100){toast('Weights must total 100% (now '+w+'%)','err');return;}
+  var btn=$('saveKpiBtn');btn.disabled=true;btn.innerHTML='<span class="ring"></span> Saving…';
+  try{await api('setCampaign',{method:'POST',body:{campaign:HO.campaign}});toast('KPI config saved ✓');}catch(e){toast(e.message,'err');}
+  btn.disabled=false;btn.innerHTML='<i class="fas fa-floppy-disk"></i> Save KPI Config';
+}
+function renderRewards(){
+  var r=HO.campaign.rewards;
+  function box(title,icon,rows){return '<div class="card"><div class="stit"><div class="ico g"><i class="fas '+icon+'"></i></div>'+title+'</div><div class="tw" style="margin-top:8px"><table><tbody>'+rows.map(function(x){return '<tr><td><b>'+x.rank+'</b></td><td class="num">'+(typeof x.etb==='number'?'ETB '+fmt(x.etb):x.etb)+'</td></tr>';}).join('')+'</tbody></table></div></div>';}
+  $('rewardCards').innerHTML=box('District Rewards','fa-sitemap',r.district)+box('Branch Rewards (Top 10)','fa-store',r.branch)+box('Merchant RM Rewards','fa-user-tie',r.merchantRM);
+}
+load();
+</script>
+</body>
+</html>

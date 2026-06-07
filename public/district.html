@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dare to Serve · District</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="hdr"></div>
+<div class="wrap">
+  <div class="hero">
+    <div class="hbadge"><i class="fas fa-sitemap"></i> District Oversight</div>
+    <h1 id="dName">District</h1>
+    <p id="dSub">Branch league table and campaign progress.</p>
+  </div>
+  <div class="sg c4" id="statRow"></div>
+
+  <div id="listView">
+    <div class="card">
+      <div class="stit"><div class="ico g"><i class="fas fa-ranking-star"></i></div>Branch League Table</div>
+      <div class="sdesc">Sample branches in your district, ranked by campaign score. Click a branch to drill in.</div>
+      <div id="leagueBox"></div>
+    </div>
+  </div>
+
+  <div id="drillView" class="hidden">
+    <div class="crumb"><a onclick="backToList()"><i class="fas fa-arrow-left"></i> All branches</a> <i class="fas fa-chevron-right"></i> <span id="crumbBr"></span></div>
+    <div class="sg c4" id="brStatRow"></div>
+    <div class="card"><div class="stit"><div class="ico"><i class="fas fa-clock-rotate-left"></i></div>Branch History</div><div id="brHist"></div></div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="app.js"></script>
+<script>
+var S=requireRole('district'),DATA=null;
+document.getElementById('hdr').innerHTML=renderHeader('District','fas fa-sitemap');
+
+async function load(){
+  try{DATA=await api('districtView');}catch(e){toast(e.message,'err');return;}
+  $('dName').textContent=DATA.district.name;
+  $('dSub').textContent=DATA.rows.length+' sample branches · Campaign target ETB '+fmtETB(DATA.district.depositTarget);
+  renderStats();renderLeague();
+}
+function renderStats(){
+  var rows=DATA.rows,d=DATA.district;
+  var totDep=rows.reduce(function(s,r){return s+(r.totals.deposit||0);},0);
+  var totAcc=rows.reduce(function(s,r){return s+(r.totals.accounts||0);},0);
+  var reported=rows.filter(function(r){return r.reportedDays>0;}).length;
+  var depPct=pct(totDep,d.depositTarget);
+  $('statRow').innerHTML=
+    statCard('District Deposit','ETB '+fmtETB(totDep),'of '+fmtETB(d.depositTarget)+' ('+depPct.toFixed(0)+'%)','gold',depPct,'gold')
+   +statCard('New Accounts',fmt(totAcc),'across sample branches','')
+   +statCard('Branches Reporting',reported+' / '+rows.length,'have submitted','')
+   +statCard('School Target',fmt(d.schoolTarget),'schools to onboard','');
+}
+function renderLeague(){
+  var rows=DATA.rows;
+  if(!rows.length){$('leagueBox').innerHTML='<div class="empty"><i class="fas fa-store-slash"></i><div>No sample branches loaded for this district.</div></div>';return;}
+  $('leagueBox').innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Branch</th><th class="num">Deposit</th><th class="num">Target</th><th class="num">%</th><th class="num">Accounts</th><th class="num">Days</th><th>Status</th></tr></thead><tbody>'
+    +rows.map(function(r,i){
+      var dp=pct(r.totals.deposit,r.depositTarget);
+      return '<tr class="click" onclick="drill(\''+r.id+'\')"><td><span class="rank '+rankCls(i)+'">'+(i+1)+'</span></td>'
+        +'<td><b>'+r.name+'</b></td>'
+        +'<td class="num">ETB '+fmtETB(r.totals.deposit)+'</td>'
+        +'<td class="num muted">'+fmtETB(r.depositTarget)+'</td>'
+        +'<td class="num"><b>'+dp.toFixed(0)+'%</b></td>'
+        +'<td class="num">'+fmt(r.totals.accounts)+'</td>'
+        +'<td class="num">'+r.reportedDays+'</td>'
+        +'<td>'+scoreBadge(r.score)+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+async function drill(branchId){
+  try{var bv=await api('branchView',{qs:'branchId='+encodeURIComponent(branchId)});}catch(e){toast(e.message,'err');return;}
+  $('listView').classList.add('hidden');$('drillView').classList.remove('hidden');
+  $('crumbBr').textContent=bv.branch.name;
+  var t=bv.totals,b=bv.branch;
+  $('brStatRow').innerHTML=
+    statCard('Score',bv.score.toFixed(1),scoreBadge(bv.score),'gold')
+   +statCard('Deposit','ETB '+fmtETB(t.deposit),'of '+fmtETB(b.depositTarget),'',pct(t.deposit,b.depositTarget),'gold')
+   +statCard('Accounts',fmt(t.accounts),'of '+fmt(b.accountsTarget),'',pct(t.accounts,b.accountsTarget))
+   +statCard('Days Reported',bv.entries.length,'entries','');
+  var kpis=bv.kpis;
+  $('brHist').innerHTML=bv.entries.length?('<div class="tw"><table><thead><tr><th>Date</th>'+kpis.map(function(k){return '<th class="num">'+k.name.replace(/ \(ETB\)/,'')+'</th>';}).join('')+'</tr></thead><tbody>'
+    +bv.entries.map(function(e){return '<tr><td><b>'+e.date+'</b></td>'+kpis.map(function(k){var v=(e.values&&e.values[k.key])||0;return '<td class="num">'+(k.unit==='ETB'?fmtETB(v):fmt(v))+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table></div>')
+    :'<div class="empty"><i class="fas fa-inbox"></i><div>This branch hasn\'t submitted yet.</div></div>';
+}
+function backToList(){$('drillView').classList.add('hidden');$('listView').classList.remove('hidden');}
+function statCard(label,val,sub,cls,pctv,fillcls){var bar=pctv!=null?'<div class="pbar"><div class="pfill '+(fillcls||'')+'" style="width:'+Math.min(100,pctv)+'%"></div></div>':'';return '<div class="sc '+(cls||'')+'"><div class="sv">'+val+'</div><div class="sl">'+label+'</div><div class="sx">'+sub+'</div>'+bar+'</div>';}
+load();
+</script>
+</body>
+</html>
